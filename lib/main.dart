@@ -1,21 +1,49 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:pharmacy_wms/Models/ProductProvider.dart';
 import 'package:pharmacy_wms/Models/UserRoleModel.dart';
 import 'package:pharmacy_wms/Models/app_localizations.dart';
+import 'package:pharmacy_wms/Models/materialModel.dart';
 import 'package:pharmacy_wms/views/LoginView.dart';
 import 'package:pharmacy_wms/Services/notificationService.dart';
 import 'package:pharmacy_wms/Services/orderService.dart';
 import 'package:pharmacy_wms/Services/OfflineService.dart';
 import 'package:pharmacy_wms/Services/ConnectivityService.dart';
 import 'package:pharmacy_wms/widgets/UpdateDialog.dart';
+import 'package:pharmacy_wms/core/windows/standalone_product_view.dart';
 
 const String backgroundImagePath =    'assets/Gemini_Generated_Image_4jaq2t4jaq2t4jaq.png';
 
 final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Détection d'une sous-fenêtre desktop indépendante (Multi-window)
+  if (!kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.linux ||
+          defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.macOS)) {
+    try {
+      final windowController = await WindowController.fromCurrentEngine();
+      if (windowController.arguments.isNotEmpty) {
+        final decoded = jsonDecode(windowController.arguments);
+        if (decoded is Map<String, dynamic> &&
+            decoded['type'] == 'product_detail') {
+          final productJson = decoded['product'] as Map<String, dynamic>;
+          final product = MaterialModel.fromJson(productJson);
+          runApp(StandaloneProductWindowApp(product: product));
+          return;
+        }
+      }
+    } catch (_) {
+      // Moteur principal standard
+    }
+  }
+
   await OfflineService.init();
   ConnectivityService().init();
   await AuthService.initialize();

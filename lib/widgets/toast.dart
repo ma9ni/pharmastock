@@ -5,9 +5,17 @@ enum ToastType { success, error, warning, info }
 OverlayEntry? _currentToast;
 
 void showToast(BuildContext context, String message, {Color? backgroundColor, ToastType type = ToastType.info, Duration duration = const Duration(seconds: 3)}) {
-  _currentToast?.remove();
+  try {
+    if (_currentToast?.mounted == true) {
+      _currentToast?.remove();
+    }
+  } catch (_) {}
+  _currentToast = null;
+
   if (!context.mounted) return;
-  final overlay = Overlay.of(context, rootOverlay: true);
+  final overlay = Overlay.maybeOf(context, rootOverlay: true);
+  if (overlay == null) return;
+
   final colors = {
     ToastType.success: Colors.green,
     ToastType.error: Colors.redAccent,
@@ -21,7 +29,7 @@ void showToast(BuildContext context, String message, {Color? backgroundColor, To
     ToastType.info: Icons.info_outline,
   };
   final color = backgroundColor ?? colors[type]!;
-  _currentToast = OverlayEntry(
+  final entry = OverlayEntry(
     builder: (ctx) => PositionedDirectional(
       top: MediaQuery.of(ctx).padding.top + 8,
       end: 16,
@@ -36,10 +44,17 @@ void showToast(BuildContext context, String message, {Color? backgroundColor, To
       ),
     ),
   );
-  overlay.insert(_currentToast!);
+  _currentToast = entry;
+  overlay.insert(entry);
   Future.delayed(duration, () {
-    _currentToast?.remove();
-    _currentToast = null;
+    if (_currentToast == entry) {
+      try {
+        if (entry.mounted) {
+          entry.remove();
+        }
+      } catch (_) {}
+      _currentToast = null;
+    }
   });
 }
 

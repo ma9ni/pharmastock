@@ -6,16 +6,15 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' hide Border;
 import 'package:printing/printing.dart';
-import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pharmacy_wms/Models/app_localizations.dart';
 import 'package:pharmacy_wms/Models/orderModel.dart';
 import 'package:pharmacy_wms/Models/UserRoleModel.dart';
-import 'package:pharmacy_wms/Models/ProductProvider.dart';
 import 'package:pharmacy_wms/Services/orderService.dart';
 import 'package:pharmacy_wms/Services/ApprovalService.dart';
 import 'package:pharmacy_wms/Services/notificationService.dart';
 import 'package:pharmacy_wms/Services/PdfService.dart';
+import 'package:pharmacy_wms/widgets/documents/document_drop_panel.dart';
 
 enum OperationType { materialReceipt, materialDispatch, expiryEdit, materialDisposal }
 
@@ -77,6 +76,7 @@ class _OperationsPageState extends State<OperationsPage> {
   List<WarehouseOperation> _allOperations = [];
   Timer? _debounce;
   bool _loading = true;
+  int _activeSection = 0; // 0: Opérations d'entrepôt, 1: Gestion Documentaire Drag & Drop
 
   @override
   void initState() {
@@ -512,7 +512,6 @@ class _OperationsPageState extends State<OperationsPage> {
     final receiptsCount = _allOperations.where((o) => o.type == OperationType.materialReceipt).length;
     final dispatchesCount = _allOperations.where((o) => o.type == OperationType.materialDispatch).length;
     final editsCount = _allOperations.where((o) => o.type == OperationType.expiryEdit).length;
-    final pendingOps = _allOperations.where((o) => o.status == 'Pending').length;
 
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF0E1621) : const Color(0xFFF5F5F5),
@@ -543,7 +542,98 @@ class _OperationsPageState extends State<OperationsPage> {
                         ),
                       ),
                 const Spacer(),
-                if (!_loading) ...[
+                // Sélecteur de section : Mouvements vs Pièces Documentaires Drag & Drop
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF16202A) : Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      InkWell(
+                        onTap: () => setState(() => _activeSection = 0),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: _activeSection == 0
+                                ? (isDark ? const Color(0xFF1E90FF) : Colors.white)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(8),
+                            boxShadow: _activeSection == 0
+                                ? [const BoxShadow(color: Colors.black12, blurRadius: 4)]
+                                : null,
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.receipt_long,
+                                size: 16,
+                                color: _activeSection == 0
+                                    ? (_activeSection == 0 && !isDark ? const Color(0xFF1E90FF) : Colors.white)
+                                    : Colors.grey,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Mouvements (${filteredOps.length})',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: _activeSection == 0
+                                      ? (_activeSection == 0 && !isDark ? const Color(0xFF1E90FF) : Colors.white)
+                                      : Colors.grey,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      InkWell(
+                        onTap: () => setState(() => _activeSection = 1),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: _activeSection == 1
+                                ? (isDark ? const Color(0xFF0A6B6E) : Colors.white)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(8),
+                            boxShadow: _activeSection == 1
+                                ? [const BoxShadow(color: Colors.black12, blurRadius: 4)]
+                                : null,
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.cloud_upload_outlined,
+                                size: 16,
+                                color: _activeSection == 1
+                                    ? (_activeSection == 1 && !isDark ? const Color(0xFF0A6B6E) : Colors.white)
+                                    : Colors.grey,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Documents & Drag & Drop',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: _activeSection == 1
+                                      ? (_activeSection == 1 && !isDark ? const Color(0xFF0A6B6E) : Colors.white)
+                                      : Colors.grey,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                if (!_loading && _activeSection == 0) ...[
                   ElevatedButton.icon(
                     onPressed: _exportToExcel,
                     icon: const Icon(Icons.table_chart_outlined, size: 16),
@@ -559,75 +649,83 @@ class _OperationsPageState extends State<OperationsPage> {
               ],
             ),
             const SizedBox(height: 20),
-            Row(
-              children: [
-                Expanded(flex: 3, child: _searchBox(isDark)),
-                const SizedBox(width: 12),
-                _dropdown(
-                  isDark,
-                  _selectedDateFilter,
-                  ['Filter by Date', 'Today', 'This Week', 'This Month', 'This Year'],
-                  (v) {
-                    if (v != null) setState(() => _selectedDateFilter = v);
-                  },
-                  (v) => _dateFilterDisplay(v),
+            if (_activeSection == 1)
+              const Expanded(
+                child: SingleChildScrollView(
+                  child: DocumentDropPanel(),
                 ),
-                const SizedBox(width: 12),
-                _dropdown(
-                  isDark,
-                  _selectedStatusFilter,
-                  ['Filter by Status', 'Completed', 'Pending', 'Rejected'],
-                  (v) {
-                    if (v != null) setState(() => _selectedStatusFilter = v);
-                  },
-                  (v) => _statusFilterDisplay(v),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 40,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
+              )
+            else ...[
+              Row(
                 children: [
-                  _filterChip(tr.all, null, isDark),
-                  const SizedBox(width: 8),
-                  _filterChip('${tr.orderTypeAdd} ($receiptsCount)', OperationType.materialReceipt, isDark),
-                  const SizedBox(width: 8),
-                  _filterChip('${tr.orderTypeExport} ($dispatchesCount)', OperationType.materialDispatch, isDark),
-                  const SizedBox(width: 8),
-                  _filterChip('${tr.orderTypeEdit} ($editsCount)', OperationType.expiryEdit, isDark),
+                  Expanded(flex: 3, child: _searchBox(isDark)),
+                  const SizedBox(width: 12),
+                  _dropdown(
+                    isDark,
+                    _selectedDateFilter,
+                    ['Filter by Date', 'Today', 'This Week', 'This Month', 'This Year'],
+                    (v) {
+                      if (v != null) setState(() => _selectedDateFilter = v);
+                    },
+                    (v) => _dateFilterDisplay(v),
+                  ),
+                  const SizedBox(width: 12),
+                  _dropdown(
+                    isDark,
+                    _selectedStatusFilter,
+                    ['Filter by Status', 'Completed', 'Pending', 'Rejected'],
+                    (v) {
+                      if (v != null) setState(() => _selectedStatusFilter = v);
+                    },
+                    (v) => _statusFilterDisplay(v),
+                  ),
                 ],
               ),
-            ),
-            const SizedBox(height: 16),
-            _buildSummaryStats(filteredOps, isDark, tr),
-            const SizedBox(height: 4),
-            Expanded(
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : filteredOps.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.assessment_outlined, size: 64, color: isDark ? Colors.white24 : Colors.black12),
-                              const SizedBox(height: 16),
-                              Text(
-                                tr.noInvoicesFound,
-                                style: TextStyle(color: isDark ? Colors.white54 : Colors.black45, fontSize: 16),
-                              ),
-                            ],
+              const SizedBox(height: 16),
+              SizedBox(
+                height: 40,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: [
+                    _filterChip(tr.all, null, isDark),
+                    const SizedBox(width: 8),
+                    _filterChip('${tr.orderTypeAdd} ($receiptsCount)', OperationType.materialReceipt, isDark),
+                    const SizedBox(width: 8),
+                    _filterChip('${tr.orderTypeExport} ($dispatchesCount)', OperationType.materialDispatch, isDark),
+                    const SizedBox(width: 8),
+                    _filterChip('${tr.orderTypeEdit} ($editsCount)', OperationType.expiryEdit, isDark),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildSummaryStats(filteredOps, isDark, tr),
+              const SizedBox(height: 4),
+              Expanded(
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : filteredOps.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.assessment_outlined, size: 64, color: isDark ? Colors.white24 : Colors.black12),
+                                const SizedBox(height: 16),
+                                Text(
+                                  tr.noInvoicesFound,
+                                  style: TextStyle(color: isDark ? Colors.white54 : Colors.black45, fontSize: 16),
+                                ),
+                              ],
+                            ),
+                          )
+                        : ListView.builder(
+                            itemCount: filteredOps.length,
+                            itemBuilder: (context, index) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: _operationCard(filteredOps[index], isDark),
+                            ),
                           ),
-                        )
-                      : ListView.builder(
-                          itemCount: filteredOps.length,
-                          itemBuilder: (context, index) => Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: _operationCard(filteredOps[index], isDark),
-                          ),
-                        ),
-            ),
+              ),
+            ],
           ],
         ),
       ),

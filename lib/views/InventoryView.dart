@@ -18,6 +18,8 @@ import 'package:pharmacy_wms/widgets/skeletons.dart';
 import 'package:pharmacy_wms/widgets/BatchDetailDialog.dart';
 import 'package:pharmacy_wms/widgets/empty_state.dart';
 import 'package:pharmacy_wms/widgets/toast.dart';
+import 'package:pharmacy_wms/core/shortcuts/screen_action_bus.dart';
+import 'package:pharmacy_wms/core/windows/window_service.dart';
 
 class InventoryPage extends StatefulWidget {
   final String? initialAvailabilityFilter;
@@ -30,12 +32,47 @@ class _InventoryPageState extends State<InventoryPage> {
   final TextEditingController _searchCtrl = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
   late String _availabilityFilter;
+  final Set<String> _selectedProductIds = {};
+  int? _lastSelectedIdx;
+  bool _isDragTargetHovered = false;
 
   @override
   void initState() {
     super.initState();
     _availabilityFilter = widget.initialAvailabilityFilter ?? 'All';
+    _registerScreenActions();
   }
+
+  void _registerScreenActions() {
+    ScreenActionBus.registerDelegate(
+      ScreenActionDelegate(
+        onSearch: () => _searchFocus.requestFocus(),
+        onSelectAll: () {
+          final provider = ProductProvider.of(context, listen: false);
+          final filtered = provider.products.where(_matchesFilters).toList();
+          _selectAll(filtered);
+        },
+        onCopySelection: () {
+          final provider = ProductProvider.of(context, listen: false);
+          _copySelection(provider.products);
+        },
+        onDeleteSelection: () {
+          final provider = ProductProvider.of(context, listen: false);
+          _deleteSelection(context, provider);
+        },
+        onEscape: _clearSelection,
+        onNewItem: () {
+          final provider = ProductProvider.of(context, listen: false);
+          _openProductDialog(context, provider);
+        },
+        onRefresh: () async {
+          final provider = ProductProvider.of(context, listen: false);
+          await provider.loadProducts();
+        },
+      ),
+    );
+  }
+
   String _categoryFilter = '';
   int? _sortColumnIndex;
   bool _sortAscending = true;
@@ -49,6 +86,325 @@ class _InventoryPageState extends State<InventoryPage> {
     _searchFocus.dispose();
     _debounce?.cancel();
     super.dispose();
+  }
+
+  void _toggleSelect(String id, int index, bool? selected, List<MaterialModel> currentList) {
+    setState(() {
+      if (HardwareKeyboard.instance.isShiftPressed && _lastSelectedIdx != null) {
+        final start = _lastSelectedIdx! < index ? _lastSelectedIdx! : index;
+        final end = _lastSelectedIdx! > index ? _lastSelectedIdx! : index;
+        for (int i = start; i <= end; i++) {
+          if (i < currentList.length) {
+            _selectedProductIds.add(currentList[i].id);
+          }
+        }
+      } else {
+        if (selected == true) {
+          _selectedProductIds.add(id);
+        } else {
+          _selectedProductIds.remove(id);
+        }
+      }
+      _lastSelectedIdx = index;
+    });
+  }
+
+  void _selectAll(List<MaterialModel> allFiltered) {
+    setState(() {
+      if (_selectedProductIds.length == allFiltered.length) {
+        _selectedProductIds.clear();
+      } else {
+        _selectedProductIds.addAll(allFiltered.map((p) => p.id));
+      }
+    });
+  }
+
+  void _clearSelection() {
+    if (_selectedProductIds.isNotEmpty) {
+      setState(() => _selectedProductIds.clear());
+    }
+  }
+
+  void _copySelection(List<MaterialModel> allProducts) {
+    final selectedItems =
+        allProducts.where((p) => _selectedProductIds.contains(p.id)).toList();
+    if (selectedItems.isEmpty) {
+      showToast(context, 'Aucun élément sélectionné à copier.',
+          type: ToastType.info);
+      return;
+    }
+    final text = selectedItems
+        .map((p) =>
+            '${p.sku}\t${p.name}\t${p.quantity} ${p.unit}\t${p.expiryDate.split("T").first}\t${p.category}')
+        .join('\n');
+    Clipboard.setData(ClipboardData(text: text));
+    showToast(context,
+        '${selectedItems.length} ligne(s) copiée(s) dans le presse-papiers.',
+        type: ToastType.success);
+  }
+
+  Future<void> _deleteSelection(
+      BuildContext context, ProductProvider provider) async {
+    if (_selectedProductIds.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Supprimer ${_selectedProductIds.length} produit(s) ?'),
+        content: Text(
+            'Êtes-vous sûr de vouloir supprimer les ${_selectedProductIds.length} éléments sélectionnés ? Cette action est irréversible.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Annuler')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child:
+                const Text('Supprimer', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      for (final id in _selectedProductIds.toList()) {
+        await provider.deleteProduct(id);
+      }
+      setState(() => _selectedProductIds.clear());
+      if (context.mounted) {
+        showToast(context, 'Éléments sélectionnés supprimés.',
+            type: ToastType.success);
+      }
+    }
+  }
+
+  void _showContextMenu(BuildContext context, Offset globalPos,
+      MaterialModel product, ProductProvider provider) {
+    final RenderBox overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox;
+    final position = RelativeRect.fromRect(
+      Rect.fromPoints(globalPos, globalPos),
+      Offset.zero & overlay.size,
+    );
+
+    showMenu<String>(
+      context: context,
+      position: position,
+      elevation: 8,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      items: [
+        const PopupMenuItem(
+          value: 'details',
+          child: Row(
+            children: [
+              Icon(Icons.visibility_outlined, size: 18),
+              SizedBox(width: 10),
+              Text('Fiche détaillée'),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'new_window',
+          child: Row(
+            children: [
+              Icon(Icons.open_in_new, size: 18, color: Color(0xFF0A6B6E)),
+              SizedBox(width: 10),
+              Text('Ouvrir dans une nouvelle fenêtre ↗',
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold, color: Color(0xFF0A6B6E))),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        if (AuthService.isWarehouseManager)
+          const PopupMenuItem(
+            value: 'edit',
+            child: Row(
+              children: [
+                Icon(Icons.edit_outlined, size: 18),
+                SizedBox(width: 10),
+                Text('Modifier le médicament'),
+              ],
+            ),
+          ),
+        const PopupMenuItem(
+          value: 'dispatch',
+          child: Row(
+            children: [
+              Icon(Icons.upload_outlined, size: 18),
+              SizedBox(width: 10),
+              Text('Sortie de stock / Dispatch'),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'batches',
+          child: Row(
+            children: [
+              Icon(Icons.layers_outlined, size: 18),
+              SizedBox(width: 10),
+              Text('Gérer les lots & péremption'),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: 'copy_sku',
+          child: Row(
+            children: [
+              const Icon(Icons.copy, size: 18),
+              const SizedBox(width: 10),
+              Text('Copier la référence (${product.sku})'),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'copy_all',
+          child: Row(
+            children: [
+              Icon(Icons.content_copy, size: 18),
+              SizedBox(width: 10),
+              Text('Copier la ligne complète'),
+            ],
+          ),
+        ),
+        if (AuthService.isWarehouseManager) ...[
+          const PopupMenuDivider(),
+          if (product.isFullyExpired)
+            const PopupMenuItem(
+              value: 'dispose',
+              child: Row(
+                children: [
+                  Icon(Icons.delete_sweep, size: 18, color: Colors.orange),
+                  SizedBox(width: 10),
+                  Text('Mettre au rebut (Expiré)',
+                      style: TextStyle(color: Colors.orange)),
+                ],
+              ),
+            ),
+          const PopupMenuItem(
+            value: 'delete',
+            child: Row(
+              children: [
+                Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                SizedBox(width: 10),
+                Text('Supprimer le produit',
+                    style: TextStyle(color: Colors.red)),
+              ],
+            ),
+          ),
+        ],
+      ],
+    ).then((value) {
+      if (value == null) return;
+      switch (value) {
+        case 'details':
+          _showDetails(context, product);
+          break;
+        case 'new_window':
+          WindowService.openProductWindow(context, product);
+          break;
+        case 'edit':
+          _openProductDialog(context, provider, existingProduct: product);
+          break;
+        case 'dispatch':
+          _openExportDialog(context, provider);
+          break;
+        case 'batches':
+          _showBatches(context, product);
+          break;
+        case 'copy_sku':
+          Clipboard.setData(ClipboardData(text: product.sku));
+          showToast(context, 'Référence ${product.sku} copiée.',
+              type: ToastType.success);
+          break;
+        case 'copy_all':
+          Clipboard.setData(ClipboardData(
+              text:
+                  '${product.sku}\t${product.name}\t${product.quantity} ${product.unit}\t${product.expiryDate.split("T").first}\t${product.category}'));
+          showToast(context, 'Informations de ${product.name} copiées.',
+              type: ToastType.success);
+          break;
+        case 'dispose':
+          _openDisposalDialog(context, provider, product);
+          break;
+        case 'delete':
+          _confirmDelete(context, provider, product);
+          break;
+      }
+    });
+  }
+
+  Widget _buildSelectionActionBar(
+      BuildContext context, ProductProvider provider, List<MaterialModel> allProducts) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1B2E38) : const Color(0xFFE3F2FD),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: theme.colorScheme.primary.withOpacity(0.4),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              '${_selectedProductIds.length} sélectionné(s)',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+            ),
+          ),
+          const SizedBox(width: 14),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.copy, size: 16),
+            label: const Text('Copier (Ctrl+C)'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            onPressed: () => _copySelection(allProducts),
+          ),
+          const SizedBox(width: 10),
+          if (AuthService.isWarehouseManager) ...[
+            OutlinedButton.icon(
+              icon: const Icon(Icons.upload, size: 16),
+              label: const Text('Sortie groupée'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              ),
+              onPressed: () => _openExportDialog(context, provider),
+            ),
+            const SizedBox(width: 10),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.delete_outline, size: 16, color: Colors.red),
+              label: const Text('Supprimer (Delete)', style: TextStyle(color: Colors.red)),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Colors.red),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              ),
+              onPressed: () => _deleteSelection(context, provider),
+            ),
+          ],
+          const Spacer(),
+          IconButton(
+            tooltip: 'Tout désélectionner (Esc)',
+            icon: const Icon(Icons.close, size: 18),
+            onPressed: _clearSelection,
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -224,8 +580,72 @@ class _InventoryPageState extends State<InventoryPage> {
           onPressed: provider.loadProducts,
           icon: const Icon(Icons.refresh),
         ),
+        const SizedBox(width: 12),
+        // Zone cible Drag & Drop interne (Glisser un produit pour Dispatch)
+        DragTarget<MaterialModel>(
+          onWillAcceptWithDetails: (_) {
+            setState(() => _isDragTargetHovered = true);
+            return true;
+          },
+          onLeave: (_) {
+            setState(() => _isDragTargetHovered = false);
+          },
+          onAcceptWithDetails: (details) {
+            setState(() => _isDragTargetHovered = false);
+            final droppedProduct = details.data;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                _openQuickDispatchDialog(context, provider, droppedProduct);
+              }
+            });
+          },
+          builder: (context, candidateData, rejectedData) {
+            final isHovered = candidateData.isNotEmpty || _isDragTargetHovered;
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+              decoration: BoxDecoration(
+                color: isHovered
+                    ? Theme.of(context).colorScheme.primary.withOpacity(0.18)
+                    : (isDark ? const Color(0xFF1E2830) : const Color(0xFFE8F4F5)),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: isHovered
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.primary.withOpacity(0.4),
+                  width: isHovered ? 2 : 1.2,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.move_to_inbox,
+                    size: 18,
+                    color: isHovered
+                        ? Theme.of(context).colorScheme.primary
+                        : (isDark ? Colors.tealAccent : const Color(0xFF0A6B6E)),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    isHovered ? 'Lâchez pour Dispatcher !' : 'Déposer ici pour Sortie',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: isHovered ? FontWeight.bold : FontWeight.w600,
+                      color: isHovered
+                          ? Theme.of(context).colorScheme.primary
+                          : (isDark ? Colors.tealAccent : const Color(0xFF0A6B6E)),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
         if (AuthService.isWarehouseManager) ...[
-          const SizedBox(width: 8),
+          const SizedBox(width: 12),
           ElevatedButton.icon(
             onPressed: () => _openProductDialog(context, provider),
             icon: const Icon(Icons.add),
@@ -284,8 +704,11 @@ class _InventoryPageState extends State<InventoryPage> {
         ),
       );
     }
+    final filtered = provider.products.where(_matchesFilters).toList();
     return Column(
       children: [
+        if (_selectedProductIds.isNotEmpty)
+          _buildSelectionActionBar(context, provider, filtered),
         Expanded(
           child: Container(
             decoration: BoxDecoration(
@@ -305,6 +728,7 @@ class _InventoryPageState extends State<InventoryPage> {
                         dataRowMaxHeight: 62,
                         sortColumnIndex: _sortColumnIndex,
                         sortAscending: _sortAscending,
+                        showCheckboxColumn: true,
                         columns: [
                           DataColumn(
                             label: Text(context.tr.materialName),
@@ -351,8 +775,20 @@ class _InventoryPageState extends State<InventoryPage> {
                           final isLowStock = MaterialService.isLowStock(product);
                           final hasWarning = hasExpiring || isLowStock;
                           final isDark = Theme.of(context).brightness == Brightness.dark;
+                          final idx = products.indexOf(product);
+                          final isSelected = _selectedProductIds.contains(product.id);
+
                           return DataRow(
+                            selected: isSelected,
+                            onSelectChanged: (selected) {
+                              _toggleSelect(product.id, idx, selected, products);
+                            },
                             color: WidgetStateProperty.resolveWith<Color?>((states) {
+                              if (states.contains(WidgetState.selected)) {
+                                return isDark
+                                    ? Colors.teal.withOpacity(0.2)
+                                    : Colors.teal.withOpacity(0.12);
+                              }
                               if (isFullyExpired) {
                                 return isDark ? Colors.grey.withOpacity(0.12) : Colors.grey.withOpacity(0.12);
                               }
@@ -361,7 +797,6 @@ class _InventoryPageState extends State<InventoryPage> {
                                     ? Colors.white.withOpacity(0.15)
                                     : Colors.blueAccent.withOpacity(0.08);
                               }
-                              final idx = products.indexOf(product);
                               if (idx.isOdd) {
                                 return isDark
                                     ? Colors.white.withOpacity(0.04)
@@ -371,67 +806,118 @@ class _InventoryPageState extends State<InventoryPage> {
                             }),
                             cells: [
                               DataCell(
-                                Row(
-                                  children: [
-                                    Container(
-                                      width: 4,
-                                      height: 38,
-                                      decoration: BoxDecoration(
-                                        color: isFullyExpired || hasExpired
-                                            ? Colors.red
-                                            : (hasExpiring || isLowStock ? Colors.orange : Colors.transparent),
-                                        borderRadius: BorderRadius.circular(2),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    if (isFullyExpired)
+                                GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onSecondaryTapDown: (details) => _showContextMenu(
+                                      context, details.globalPosition, product, provider),
+                                  onDoubleTap: () => _showDetails(context, product),
+                                  child: Row(
+                                    children: [
                                       Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        width: 4,
+                                        height: 38,
                                         decoration: BoxDecoration(
-                                          color: Colors.red,
-                                          borderRadius: BorderRadius.circular(4),
+                                          color: isFullyExpired || hasExpired
+                                              ? Colors.red
+                                              : (hasExpiring || isLowStock ? Colors.orange : Colors.transparent),
+                                          borderRadius: BorderRadius.circular(2),
                                         ),
-                                        child: Text(
-                                          context.tr.expiredStatus.toUpperCase(),
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 9,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      )
-                                    else if (hasExpired)
-                                      const Tooltip(
-                                        message: 'Material has expired batches!',
-                                        child: Icon(Icons.dangerous, color: Colors.red, size: 18),
-                                      )
-                                    else if (isLowStock)
-                                      const Tooltip(
-                                        message: 'Stock is below low threshold!',
-                                        child: Icon(Icons.warning, color: Colors.orange, size: 18),
                                       ),
-                                    if (isFullyExpired || hasExpired || isLowStock) const SizedBox(width: 8),
-                                    Expanded(child: _productSummary(context, product)),
+                                      const SizedBox(width: 10),
+                                      if (isFullyExpired)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: Colors.red,
+                                            borderRadius: BorderRadius.circular(4),
+                                          ),
+                                          child: Text(
+                                            context.tr.expiredStatus.toUpperCase(),
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        )
+                                      else if (hasExpired)
+                                        const Tooltip(
+                                          message: 'Material has expired batches!',
+                                          child: Icon(Icons.dangerous, color: Colors.red, size: 18),
+                                        )
+                                      else if (isLowStock)
+                                        const Tooltip(
+                                          message: 'Stock is below low threshold!',
+                                          child: Icon(Icons.warning, color: Colors.orange, size: 18),
+                                        ),
+                                      if (isFullyExpired || hasExpired || isLowStock) const SizedBox(width: 8),
+                                      Expanded(child: _productSummary(context, product)),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              DataCell(
+                                GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onSecondaryTapDown: (details) => _showContextMenu(
+                                      context, details.globalPosition, product, provider),
+                                  onDoubleTap: () => _showDetails(context, product),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(_databaseQuantityText(product)),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              DataCell(
+                                GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onSecondaryTapDown: (details) => _showContextMenu(
+                                      context, details.globalPosition, product, provider),
+                                  onDoubleTap: () => _showDetails(context, product),
+                                  child: Text(product.unit.isEmpty ? '-' : product.unit),
+                                ),
+                              ),
+                              DataCell(
+                                GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onSecondaryTapDown: (details) => _showContextMenu(
+                                      context, details.globalPosition, product, provider),
+                                  onDoubleTap: () => _showDetails(context, product),
+                                  child: _availabilityChip(context, product.isAvailable),
+                                ),
+                              ),
+                              DataCell(
+                                GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onSecondaryTapDown: (details) => _showContextMenu(
+                                      context, details.globalPosition, product, provider),
+                                  onDoubleTap: () => _showDetails(context, product),
+                                  child: (isFullyExpired || hasExpired) && hasWarning
+                                      ? Row(mainAxisSize: MainAxisSize.min, children: [
+                                          const Icon(Icons.warning_amber_rounded, size: 14, color: Colors.red),
+                                          const SizedBox(width: 4),
+                                          Text(_formatDate(product.expiryDate),
+                                              style: const TextStyle(color: Colors.red)),
+                                        ])
+                                      : Text(_formatDate(product.expiryDate)),
+                                ),
+                              ),
+                              DataCell(
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.open_in_new, size: 18, color: Color(0xFF0A6B6E)),
+                                      tooltip: 'Ouvrir dans une nouvelle fenêtre desktop',
+                                      onPressed: () => WindowService.openProductWindow(context, product),
+                                    ),
+                                    _buildActions(context, provider, product),
                                   ],
                                 ),
                               ),
-                              DataCell(Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(_databaseQuantityText(product)),
-                                ],
-                              )),
-                              DataCell(Text(product.unit.isEmpty ? '-' : product.unit)),
-                              DataCell(_availabilityChip(context, product.isAvailable)),
-                              DataCell((isFullyExpired || hasExpired) && hasWarning
-                                  ? Row(mainAxisSize: MainAxisSize.min, children: [
-                                      const Icon(Icons.warning_amber_rounded, size: 14, color: Colors.red),
-                                      const SizedBox(width: 4),
-                                      Text(_formatDate(product.expiryDate), style: const TextStyle(color: Colors.red)),
-                                    ])
-                                  : Text(_formatDate(product.expiryDate))),
-                              DataCell(_buildActions(context, provider, product)),
                             ],
                           );
                         }).toList(),
@@ -450,25 +936,118 @@ class _InventoryPageState extends State<InventoryPage> {
 
   Widget _productSummary(BuildContext context, MaterialModel product) {
     final textColor = Theme.of(context).textTheme.bodySmall?.color ?? Colors.black54;
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        InkWell(
-          onTap: () => _showBatches(context, product),
-          child: Text(product.name,
+
+    return Draggable<MaterialModel>(
+      data: product,
+      feedback: Material(
+        elevation: 8,
+        borderRadius: BorderRadius.circular(8),
+        color: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0A6B6E),
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: const [
+              BoxShadow(
+                color: Colors.black26,
+                blurRadius: 10,
+                offset: Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.medication, color: Colors.white, size: 18),
+              const SizedBox(width: 8),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 240),
+                child: Text(
+                  product.name,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  '${product.quantity} ${product.unit}',
+                  style: const TextStyle(color: Colors.white, fontSize: 11),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      childWhenDragging: Opacity(
+        opacity: 0.4,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              product.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  decoration: TextDecoration.underline,
-                  decorationColor: Colors.blue,
-                  color: Colors.blue)),
+                fontWeight: FontWeight.w600,
+                color: Colors.blue,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${context.tr.skuPrefix}${product.sku}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, color: textColor),
+            ),
+          ],
         ),
-        const SizedBox(height: 4),
-        Text(
-          '${context.tr.skuPrefix}${product.sku}',
-          style: TextStyle(fontSize: 12, color: textColor),
-        ),
-      ],
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.drag_indicator, size: 14, color: Colors.grey),
+              const SizedBox(width: 4),
+              Flexible(
+                child: InkWell(
+                  onTap: () => _showBatches(context, product),
+                  child: Text(
+                    product.name,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      decoration: TextDecoration.underline,
+                      decorationColor: Colors.blue,
+                      color: Colors.blue,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${context.tr.skuPrefix}${product.sku}',
+            style: TextStyle(fontSize: 12, color: textColor),
+          ),
+        ],
+      ),
     );
   }
 
@@ -572,6 +1151,232 @@ class _InventoryPageState extends State<InventoryPage> {
     await showDialog<void>(
       context: context,
       builder: (_) => AddMaterialWizard(provider: provider),
+    );
+  }
+
+  Future<void> _openQuickDispatchDialog(
+    BuildContext context,
+    ProductProvider provider,
+    MaterialModel product,
+  ) async {
+    final tr = context.tr;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final qtyCtrl = TextEditingController(text: '1');
+    final recipientCtrl = TextEditingController();
+    bool saving = false;
+    String? errorMessage;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (dialogCtx, setDialogState) {
+          final textColor = isDark ? Colors.white : Colors.black87;
+          final subTextColor = isDark ? Colors.white60 : Colors.black54;
+
+          return AlertDialog(
+            backgroundColor: isDark ? const Color(0xFF1B2430) : Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            actionsPadding: const EdgeInsets.all(16),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0A6B6E).withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.outbox, color: Color(0xFF0A6B6E), size: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Expédition Rapide (FEFO)',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: textColor,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Sortie de stock assistée',
+                        style: TextStyle(fontSize: 12, color: subTextColor),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 440,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Carte du produit sélectionné
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF222D3A) : const Color(0xFFF4F8F9),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: isDark ? Colors.white12 : const Color(0xFFD3E7E8),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.medication, color: Color(0xFF0A6B6E), size: 28),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                product.name,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                  color: textColor,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'SKU: ${product.sku}  •  Lot: ${product.lot}',
+                                style: TextStyle(fontSize: 12, color: subTextColor),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0A6B6E).withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            '${product.quantity} ${product.unit}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                              color: Color(0xFF0A6B6E),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // Champ Quantité
+                  TextField(
+                    controller: qtyCtrl,
+                    keyboardType: TextInputType.number,
+                    style: TextStyle(color: textColor),
+                    decoration: InputDecoration(
+                      labelText: 'Quantité à expédier (${product.unit})',
+                      prefixIcon: const Icon(Icons.onetwothree),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      helperText: 'Max disponible: ${product.quantity} ${product.unit}',
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  // Champ Destinataire / Service
+                  TextField(
+                    controller: recipientCtrl,
+                    style: TextStyle(color: textColor),
+                    decoration: InputDecoration(
+                      labelText: 'Destinataire ou Service bénéficiaire',
+                      hintText: 'Ex: Pharmacie Centrale, Urgences...',
+                      prefixIcon: const Icon(Icons.local_shipping_outlined),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                  if (errorMessage != null) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      errorMessage!,
+                      style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: saving ? null : () => Navigator.pop(dialogCtx),
+                child: Text(tr.cancel),
+              ),
+              ElevatedButton.icon(
+                onPressed: saving
+                    ? null
+                    : () async {
+                        final parsedQty = int.tryParse(qtyCtrl.text.trim());
+                        if (parsedQty == null || parsedQty <= 0) {
+                          setDialogState(() => errorMessage = 'Veuillez saisir une quantité valide.');
+                          return;
+                        }
+                        if (parsedQty > product.quantity) {
+                          setDialogState(() => errorMessage = 'La quantité dépasse le stock disponible (${product.quantity}).');
+                          return;
+                        }
+
+                        setDialogState(() {
+                          saving = true;
+                          errorMessage = null;
+                        });
+
+                        try {
+                          final createdBy = AuthService.currentUser?.fullName ?? 'Opérateur';
+                          final recipient = recipientCtrl.text.trim().isNotEmpty ? recipientCtrl.text.trim() : 'Service Général';
+
+                          await OrderService.dispatchFefo({
+                            'productId': int.tryParse(product.id),
+                            'quantity': parsedQty,
+                            'recipient': recipient,
+                            'createdBy': createdBy,
+                          });
+
+                          await provider.loadProducts();
+                          if (dialogCtx.mounted) {
+                            Navigator.pop(dialogCtx);
+                          }
+                          if (context.mounted) {
+                            showToast(
+                              context,
+                              'Sortie réussie : $parsedQty ${product.unit} de "${product.name}" expédiés (règle FEFO).',
+                              type: ToastType.success,
+                            );
+                          }
+                        } catch (e) {
+                          setDialogState(() {
+                            saving = false;
+                            errorMessage = e.toString().replaceFirst('Exception: ', '');
+                          });
+                        }
+                      },
+                icon: saving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.check, size: 18),
+                label: const Text('Confirmer la sortie'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0A6B6E),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
