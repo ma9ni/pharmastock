@@ -1,0 +1,13 @@
+{
+    "latestVersion":  "1.1.64",
+    "latestBuildNumber":  65,
+    "downloadUrl":  "https://github.com/test-pharm/pharmacy-wms-flutter/releases/latest/download/pharmacy-wms-windows.zip",
+    "mandatory":  false,
+    "releaseNotes":  [
+                         "Root fix: update info now served from backend (no GitHub dependency)",
+                         "Invoices tab with grouped order view and detail dialog",
+                         "Audit log tab restored in sidebar",
+                         "Fixed order creation (productId type mismatch resolved)",
+                         "Database migration for InvoiceNumber/ExpiryDate columns"
+                     ]
+}
