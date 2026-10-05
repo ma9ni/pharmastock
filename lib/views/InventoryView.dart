@@ -198,19 +198,26 @@ class _InventoryPageState extends State<InventoryPage> {
             children: [
               Icon(Icons.visibility_outlined, size: 18),
               SizedBox(width: 10),
-              Text('Fiche détaillée'),
+              Expanded(
+                child: Text('Fiche détaillée', overflow: TextOverflow.ellipsis),
+              ),
             ],
           ),
         ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: 'new_window',
           child: Row(
             children: [
-              Icon(Icons.open_in_new, size: 18, color: Color(0xFF0A6B6E)),
-              SizedBox(width: 10),
-              Text('Ouvrir dans une nouvelle fenêtre ↗',
-                  style: TextStyle(
-                      fontWeight: FontWeight.bold, color: Color(0xFF0A6B6E))),
+              const Icon(Icons.open_in_new, size: 18, color: Color(0xFF0A6B6E)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Nouvelle fenêtre ↗',
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, color: Color(0xFF0A6B6E)),
+                ),
+              ),
             ],
           ),
         ),
@@ -222,7 +229,10 @@ class _InventoryPageState extends State<InventoryPage> {
               children: [
                 Icon(Icons.edit_outlined, size: 18),
                 SizedBox(width: 10),
-                Text('Modifier le médicament'),
+                Expanded(
+                  child: Text('Modifier le médicament',
+                      overflow: TextOverflow.ellipsis),
+                ),
               ],
             ),
           ),
@@ -232,7 +242,10 @@ class _InventoryPageState extends State<InventoryPage> {
             children: [
               Icon(Icons.upload_outlined, size: 18),
               SizedBox(width: 10),
-              Text('Sortie de stock / Dispatch'),
+              Expanded(
+                child: Text('Sortie de stock / Dispatch',
+                    overflow: TextOverflow.ellipsis),
+              ),
             ],
           ),
         ),
@@ -242,7 +255,10 @@ class _InventoryPageState extends State<InventoryPage> {
             children: [
               Icon(Icons.layers_outlined, size: 18),
               SizedBox(width: 10),
-              Text('Gérer les lots & péremption'),
+              Expanded(
+                child: Text('Gérer les lots & péremption',
+                    overflow: TextOverflow.ellipsis),
+              ),
             ],
           ),
         ),
@@ -253,7 +269,10 @@ class _InventoryPageState extends State<InventoryPage> {
             children: [
               const Icon(Icons.copy, size: 18),
               const SizedBox(width: 10),
-              Text('Copier la référence (${product.sku})'),
+              Expanded(
+                child: Text('Copier référence (${product.sku})',
+                    overflow: TextOverflow.ellipsis),
+              ),
             ],
           ),
         ),
@@ -263,7 +282,10 @@ class _InventoryPageState extends State<InventoryPage> {
             children: [
               Icon(Icons.content_copy, size: 18),
               SizedBox(width: 10),
-              Text('Copier la ligne complète'),
+              Expanded(
+                child: Text('Copier la ligne complète',
+                    overflow: TextOverflow.ellipsis),
+              ),
             ],
           ),
         ),
@@ -276,8 +298,11 @@ class _InventoryPageState extends State<InventoryPage> {
                 children: [
                   Icon(Icons.delete_sweep, size: 18, color: Colors.orange),
                   SizedBox(width: 10),
-                  Text('Mettre au rebut (Expiré)',
-                      style: TextStyle(color: Colors.orange)),
+                  Expanded(
+                    child: Text('Mettre au rebut (Expiré)',
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: Colors.orange)),
+                  ),
                 ],
               ),
             ),
@@ -287,8 +312,11 @@ class _InventoryPageState extends State<InventoryPage> {
               children: [
                 Icon(Icons.delete_outline, size: 18, color: Colors.red),
                 SizedBox(width: 10),
-                Text('Supprimer le produit',
-                    style: TextStyle(color: Colors.red)),
+                Expanded(
+                  child: Text('Supprimer le produit',
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: Colors.red)),
+                ),
               ],
             ),
           ),

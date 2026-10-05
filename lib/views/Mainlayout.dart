@@ -482,83 +482,98 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
                           const Divider(height: 1),
                           Padding(
                             padding: const EdgeInsets.all(6),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  onPressed: () => setState(() => _sidebarCollapsed = !_sidebarCollapsed),
-                                  icon: AnimatedRotation(
-                                    turns: _sidebarCollapsed ? 0.5 : 0,
-                                    duration: const Duration(milliseconds: 250),
-                                    curve: Curves.easeInOut,
-                                    child: Icon(
-                                      Directionality.of(context) == TextDirection.rtl ? Icons.chevron_left : Icons.chevron_right,
-                                      size: 18,
-                                      color: isDark ? Colors.white70 : Colors.black54,
+                            child: _sidebarCollapsed
+                                ? IconButton(
+                                    onPressed: () => setState(() => _sidebarCollapsed = !_sidebarCollapsed),
+                                    icon: AnimatedRotation(
+                                      turns: _sidebarCollapsed ? 0.5 : 0,
+                                      duration: const Duration(milliseconds: 250),
+                                      curve: Curves.easeInOut,
+                                      child: Icon(
+                                        Directionality.of(context) == TextDirection.rtl ? Icons.chevron_left : Icons.chevron_right,
+                                        size: 18,
+                                        color: isDark ? Colors.white70 : Colors.black54,
+                                      ),
                                     ),
-                                  ),
-                                  tooltip: _sidebarCollapsed ? 'Expand' : 'Collapse',
-                                ),
-                                if (!_sidebarCollapsed) ...[
-                                  IconButton(
-                                    onPressed: _openCommandPalette,
-                                    icon: const Icon(Icons.terminal),
-                                    color: isDark ? Colors.white70 : Colors.black54,
-                                    tooltip: 'Palette de commandes (${AppShortcuts.formatShortcut(shift: true, key: 'P')})',
-                                  ),
-                                  IconButton(
-                                    onPressed: () => KeyboardShortcutsDialog.show(context),
-                                    icon: const Icon(Icons.keyboard),
-                                    color: isDark ? Colors.white70 : Colors.black54,
-                                    tooltip: 'Raccourcis clavier (F1)',
-                                  ),
-                                  Stack(
-                                    clipBehavior: Clip.none,
+                                    tooltip: 'Expand',
+                                  )
+                                : Wrap(
+                                    spacing: 2,
+                                    runSpacing: 2,
+                                    alignment: WrapAlignment.center,
                                     children: [
                                       IconButton(
-                                        onPressed: _showGlobalNotifications,
-                                        icon: const Icon(Icons.notifications_none),
-                                        color: isDark ? Colors.white70 : Colors.black54,
-                                        tooltip: tr.notifications,
-                                      ),
-                                      if (NotificationService.getUnread().isNotEmpty)
-                                        Positioned(
-                                          right: -2,
-                                          top: -2,
-                                          child: Container(
-                                            padding: const EdgeInsets.all(2),
-                                            decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
-                                            constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
-                                            child: Text(
-                                              '${NotificationService.getUnread().length}',
-                                              style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
-                                              textAlign: TextAlign.center,
-                                            ),
+                                        onPressed: () => setState(() => _sidebarCollapsed = !_sidebarCollapsed),
+                                        icon: AnimatedRotation(
+                                          turns: _sidebarCollapsed ? 0.5 : 0,
+                                          duration: const Duration(milliseconds: 250),
+                                          curve: Curves.easeInOut,
+                                          child: Icon(
+                                            Directionality.of(context) == TextDirection.rtl ? Icons.chevron_left : Icons.chevron_right,
+                                            size: 18,
+                                            color: isDark ? Colors.white70 : Colors.black54,
                                           ),
                                         ),
+                                        tooltip: 'Collapse',
+                                      ),
+                                      IconButton(
+                                        onPressed: _openCommandPalette,
+                                        icon: const Icon(Icons.terminal),
+                                        color: isDark ? Colors.white70 : Colors.black54,
+                                        tooltip: 'Palette de commandes (${AppShortcuts.formatShortcut(shift: true, key: 'P')})',
+                                      ),
+                                      IconButton(
+                                        onPressed: () => KeyboardShortcutsDialog.show(context),
+                                        icon: const Icon(Icons.keyboard),
+                                        color: isDark ? Colors.white70 : Colors.black54,
+                                        tooltip: 'Raccourcis clavier (F1)',
+                                      ),
+                                      Stack(
+                                        clipBehavior: Clip.none,
+                                        children: [
+                                          IconButton(
+                                            onPressed: _showGlobalNotifications,
+                                            icon: const Icon(Icons.notifications_none),
+                                            color: isDark ? Colors.white70 : Colors.black54,
+                                            tooltip: tr.notifications,
+                                          ),
+                                          if (NotificationService.getUnread().isNotEmpty)
+                                            Positioned(
+                                              right: -2,
+                                              top: -2,
+                                              child: Container(
+                                                padding: const EdgeInsets.all(2),
+                                                decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                                                constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
+                                                child: Text(
+                                                  '${NotificationService.getUnread().length}',
+                                                  style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                                                  textAlign: TextAlign.center,
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                      IconButton(
+                                        onPressed: () => themeNotifier.value = themeNotifier.value == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark,
+                                        icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode,
+                                            color: isDark ? Colors.white70 : Colors.black54),
+                                        tooltip: tr.toggleTheme,
+                                      ),
+                                      IconButton(
+                                        onPressed: _toggleLanguage,
+                                        tooltip: tr.toggleLanguage,
+                                        icon: Text(lang == AppLanguage.ar ? 'EN' : 'عربي',
+                                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700,
+                                                color: isDark ? Colors.white70 : Colors.black54)),
+                                      ),
+                                      IconButton(
+                                        onPressed: _logout,
+                                        icon: Icon(Icons.logout, color: isDark ? Colors.white70 : Colors.black54),
+                                        tooltip: tr.logout,
+                                      ),
                                     ],
                                   ),
-                                  IconButton(
-                                    onPressed: () => themeNotifier.value = themeNotifier.value == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark,
-                                    icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode,
-                                        color: isDark ? Colors.white70 : Colors.black54),
-                                    tooltip: tr.toggleTheme,
-                                  ),
-                                  IconButton(
-                                    onPressed: _toggleLanguage,
-                                    tooltip: tr.toggleLanguage,
-                                    icon: Text(lang == AppLanguage.ar ? 'EN' : 'عربي',
-                                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700,
-                                            color: isDark ? Colors.white70 : Colors.black54)),
-                                  ),
-                                  IconButton(
-                                    onPressed: _logout,
-                                    icon: Icon(Icons.logout, color: isDark ? Colors.white70 : Colors.black54),
-                                    tooltip: tr.logout,
-                                  ),
-                                ],
-                              ],
-                            ),
                           ),
                           ValueListenableBuilder<bool>(
                             valueListenable: ConnectivityService().isOnline,
@@ -722,16 +737,19 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
             ),
           )
         else
-          ListTile(
-            dense: true,
-            leading: Icon(icon, color: iconColor),
-            title: Text(label,
-                style: TextStyle(color: selected ? selectedColor : (isDark ? Colors.white : Colors.black87),
-                    fontWeight: selected ? FontWeight.w600 : FontWeight.normal)),
-            selected: selected,
-            selectedTileColor: selectedColor.withOpacity(0.08),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            onTap: () => _onSelect(index),
+          Material(
+            color: Colors.transparent,
+            child: ListTile(
+              dense: true,
+              leading: Icon(icon, color: iconColor),
+              title: Text(label,
+                  style: TextStyle(color: selected ? selectedColor : (isDark ? Colors.white : Colors.black87),
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.normal)),
+              selected: selected,
+              selectedTileColor: selectedColor.withOpacity(0.08),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              onTap: () => _onSelect(index),
+            ),
           ),
         if (selected)
           Positioned(

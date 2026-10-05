@@ -1,7 +1,11 @@
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:pharmacy_wms/widgets/toast.dart';
+import 'package:pharmacy_wms/widgets/documents/document_preview_dialog.dart';
 
 class ERPDocument {
   final String id;
@@ -11,6 +15,8 @@ class ERPDocument {
   final DateTime uploadDate;
   final String uploadedBy;
   final String status; // 'Vérifié', 'En cours', 'Archivé'
+  final String? path;
+  final Uint8List? bytes;
 
   ERPDocument({
     required this.id,
@@ -20,6 +26,8 @@ class ERPDocument {
     required this.uploadDate,
     required this.uploadedBy,
     this.status = 'Vérifié',
+    this.path,
+    this.bytes,
   });
 }
 
@@ -69,7 +77,7 @@ class _DocumentDropPanelState extends State<DocumentDropPanel> {
     ),
   ];
 
-  void _addImportedFile(String fileName, int fileSizeBytes) {
+  void _addImportedFile(String fileName, int fileSizeBytes, {String? path, Uint8List? bytes}) {
     final ext = fileName.contains('.') ? fileName.split('.').last.toUpperCase() : 'DOC';
     final sizeKb = (fileSizeBytes / 1024).round();
     final sizeStr = sizeKb > 1024
@@ -84,6 +92,8 @@ class _DocumentDropPanelState extends State<DocumentDropPanel> {
       uploadDate: DateTime.now(),
       uploadedBy: 'Utilisateur connecté',
       status: 'Vérifié ✓',
+      path: path,
+      bytes: bytes,
     );
 
     setState(() {
@@ -102,11 +112,18 @@ class _DocumentDropPanelState extends State<DocumentDropPanel> {
       final result = await FilePicker.pickFiles(
         allowMultiple: true,
         type: FileType.custom,
-        allowedExtensions: ['pdf', 'xlsx', 'xls', 'docx', 'png', 'jpg'],
+        allowedExtensions: ['pdf', 'xlsx', 'xls', 'docx', 'png', 'jpg', 'jpeg'],
+        withData: true,
       );
       if (result != null && result.files.isNotEmpty) {
         for (final file in result.files) {
-          _addImportedFile(file.name, file.size);
+          Uint8List? fileBytes = file.bytes;
+          if (fileBytes == null && file.path != null && !kIsWeb) {
+            try {
+              fileBytes = await File(file.path!).readAsBytes();
+            } catch (_) {}
+          }
+          _addImportedFile(file.name, file.size, path: file.path, bytes: fileBytes);
         }
       }
     } catch (_) {
@@ -159,14 +176,16 @@ class _DocumentDropPanelState extends State<DocumentDropPanel> {
         DropTarget(
           onDragEntered: (detail) => setState(() => _isDragging = true),
           onDragExited: (detail) => setState(() => _isDragging = false),
-          onDragDone: (detail) {
+          onDragDone: (detail) async {
             setState(() => _isDragging = false);
             for (final file in detail.files) {
-              file.length().then((size) {
-                _addImportedFile(file.name, size);
-              }).catchError((_) {
-                _addImportedFile(file.name, 450000);
-              });
+              try {
+                final size = await file.length();
+                final bytes = await file.readAsBytes();
+                _addImportedFile(file.name, size, path: file.path, bytes: bytes);
+              } catch (_) {
+                _addImportedFile(file.name, 450000, path: file.path);
+              }
             }
           },
           child: AnimatedContainer(
@@ -241,12 +260,16 @@ class _DocumentDropPanelState extends State<DocumentDropPanel> {
               final doc = _documents[index];
               return ListTile(
                 dense: true,
+                hoverColor: theme.colorScheme.primary.withOpacity(0.06),
+                onTap: () => DocumentPreviewDialog.show(context, doc),
                 leading: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: doc.type == 'PDF'
                         ? Colors.red.withOpacity(0.15)
-                        : Colors.green.withOpacity(0.15),
+                        : (doc.type == 'XLSX' || doc.type == 'XLS'
+                            ? Colors.green.withOpacity(0.15)
+                            : Colors.blue.withOpacity(0.15)),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
@@ -254,17 +277,23 @@ class _DocumentDropPanelState extends State<DocumentDropPanel> {
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
-                      color: doc.type == 'PDF' ? Colors.red : Colors.green,
+                      color: doc.type == 'PDF'
+                          ? Colors.red
+                          : (doc.type == 'XLSX' || doc.type == 'XLS' ? Colors.green : Colors.blue),
                     ),
                   ),
                 ),
                 title: Text(
                   doc.name,
                   style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 subtitle: Text(
                   '${doc.size} • Ajouté le ${doc.uploadDate.day}/${doc.uploadDate.month}/${doc.uploadDate.year} par ${doc.uploadedBy}',
                   style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -286,11 +315,9 @@ class _DocumentDropPanelState extends State<DocumentDropPanel> {
                     ),
                     const SizedBox(width: 8),
                     IconButton(
-                      icon: const Icon(Icons.open_in_new, size: 16),
+                      icon: const Icon(Icons.visibility_outlined, size: 18),
                       tooltip: 'Consulter / Aperçu',
-                      onPressed: () {
-                        showToast(context, 'Ouverture du document "${doc.name}"...');
-                      },
+                      onPressed: () => DocumentPreviewDialog.show(context, doc),
                     ),
                     IconButton(
                       icon: const Icon(Icons.delete_outline, size: 16, color: Colors.red),

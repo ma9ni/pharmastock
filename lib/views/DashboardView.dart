@@ -62,7 +62,9 @@ class _DashboardPageState extends State<DashboardPage> {
   void initState() {
     super.initState();
     NotificationService.changes.addListener(_handleNotificationChange);
-    _fetchDashboardData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _fetchDashboardData();
+    });
     _refreshTimer = Timer.periodic(const Duration(seconds: 60), (_) {
       _fetchDashboardData();
     });

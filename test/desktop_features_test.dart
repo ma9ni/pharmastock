@@ -8,6 +8,7 @@ import 'package:pharmacy_wms/widgets/command_palette/command_item.dart';
 import 'package:pharmacy_wms/widgets/command_palette/command_palette_dialog.dart';
 import 'package:pharmacy_wms/widgets/keyboard_help/keyboard_shortcuts_dialog.dart';
 import 'package:pharmacy_wms/widgets/documents/document_drop_panel.dart';
+import 'package:pharmacy_wms/widgets/documents/document_preview_dialog.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:pharmacy_wms/core/windows/standalone_product_view.dart';
 
@@ -157,6 +158,25 @@ void main() {
       expect(find.byType(DropTarget), findsOneWidget);
       expect(find.textContaining('Glissez-déposez des fichiers ici'), findsOneWidget);
       expect(find.textContaining('Facture_Fournisseur_Sanofi'), findsOneWidget);
+    });
+
+    testWidgets('Tapping preview opens DocumentPreviewDialog', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: DocumentDropPanel(),
+          ),
+        ),
+      );
+
+      final previewBtn = find.byIcon(Icons.visibility_outlined).first;
+      expect(previewBtn, findsOneWidget);
+
+      await tester.tap(previewBtn);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(find.byType(DocumentPreviewDialog), findsOneWidget);
     });
   });
 
